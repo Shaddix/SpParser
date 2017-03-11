@@ -1,10 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
@@ -26,17 +27,21 @@ namespace SpParser
             InitializeComponent();
         }
 
-        private void Form1_Load(object sender, EventArgs e)
-        {
-            WriteToExcel();
+        private const int PageCount = 422;
+        //private const string PageUrl = "http://sp.tomica.ru/forum/phpBB3/viewtopic.php?keys_=243&f=244&t=431244"; //Dec
+        //private const string PageUrl = "http://sp.tomica.ru/forum/phpBB3/viewtopic.php?keys_=243&f=244&t=436615"; //jan
+        private const string PageUrl = "http://sp.tomica.ru/forum/phpBB3/viewtopic.php?keys_=135&f=244&t=441821"; //feb
 
-            //DoWork();
+        private async void Form1_Load(object sender, EventArgs e)
+        {
+            await DoWork();
+            WriteToExcel();
         }
 
         private void WriteToExcel()
         {
             var result = new List<LineData>();
-            for (int i = 0; i < 493; i++)
+            for (int i = 0; i < PageCount; i++)
             {
                 var data = JsonConvert.DeserializeObject<List<LineData>>(File.ReadAllText(i + ".txt"));
                 result.AddRange(data);
@@ -61,14 +66,14 @@ namespace SpParser
             }
             try
             {
-                wb.SaveAs("HelloWorld.xlsx");
+                wb.SaveAs("HelloWorld_feb.xlsx");
             }
             catch (Exception)
             {
-                
+
                 throw;
             }
-            
+
         }
 
         private async Task DoWork()
@@ -78,41 +83,47 @@ namespace SpParser
 
                 var driver = GetDriver();
 
-                driver.Navigate().GoToUrl("http://sp.tomica.ru/forum/phpBB3/ucp.php?b_=84&mode=login");
+                driver.Navigate().GoToUrl("http://sp.tomica.ru/forum/phpBB3/ucp.php?b_=320&mode=login");
                 var loginPage = new LoginPage(driver);
                 loginPage.EnterLogin("linsp", "123qweASD");
 
                 var cookies = driver.Manage().Cookies.AllCookies;
-                var link = "http://sp.tomica.ru/forum/phpBB3/viewtopic.php?keys_=242&f=244&t=426010";
+                var link = PageUrl;
 
                 var handler = new HttpClientHandler();
                 foreach (var cookie in cookies)
                 {
                     handler.CookieContainer.Add(new System.Net.Cookie(cookie.Name, cookie.Value, cookie.Path, cookie.Domain));
                 }
-
+//driver.Manage().
                 driver.Quit();
 
+                //handler.CookieContainer.Add(new System.Net.Cookie("phpbb3_oaauj_u", "179106")
+                //{
+                //    Domain = "sp.tomica.ru",
+                //});
+                //handler.CookieContainer.Add(new System.Net.Cookie("phpbb3_oaauj_sid", "af175b8af7bd69f9f95a70ab2f8b68e7")
+                //{
+                //    Domain = "sp.tomica.ru",
+                //});
 
                 var client = new HttpClient(handler);
                 client.DefaultRequestHeaders.Add("User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.87 Safari/537.36");
+                    "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36");
 
 
-                for (int i = 0; i < 493; i++)
+                for (int i = 0; i < PageCount; i++)
                 {
                     Console.WriteLine("Page " + i);
-                    var result = await ParseListOfZakupka(client, link, i * 10);
+                    var result = await ParseListOfZakupka(client, PageUrl, i * 10);
                     var serialized = JsonConvert.SerializeObject(result);
                     File.WriteAllText(i + ".txt", serialized);
-
-
                 }
 
             }
             catch (Exception)
             {
-                MessageBox.Show("asd");
+                MessageBox.Show("asd"); //check that UserAgent is the same as in Chrome!
             }
             finally
             {
@@ -142,10 +153,18 @@ namespace SpParser
                 var linkToZakupka = post.SelectSingleNode(".//div[@class='content']//a");
                 if (linkToZakupka != null && (linkToZakupka.GetAttributeValue("href", "") != "#"))
                 {
-                    var href = linkToZakupka.GetAttributeValue("href", "");
+                    var href = linkToZakupka.GetAttributeValue("href", "").Replace("hhttp", "http");
                     href = href.Replace("&amp;", "&");
-                    var data = await OpenZakupkaAndParseTable(client, href);
-                    result.AddRange(data);
+                    try
+                    {
+                        var data = await OpenZakupkaAndParseTable(client, href);
+                        result.AddRange(data);
+                    }
+                    catch (Exception)
+                    {
+                        PostWithNoLink.Add(post.InnerHtml);
+                        continue;
+                    }
                 }
                 else
                 {
